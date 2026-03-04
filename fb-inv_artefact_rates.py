@@ -253,6 +253,7 @@ def is_fb_inv(alignmentObj, minMAPQ):
     ## if read has supplementary alignments
     if alignmentObj.has_tag('SA'):
         sa_tags = alignmentObj.get_tag('SA').split(";") # Pattern ['chr12,82187865,-,10S1601M203D1812S,60,485', '']
+        readgroup = alignmentObj.get_tag('RG') # Pattern (RG, "GJP00TM04")
         
         # A. if only one supplementary alignment --> Easiest case
         if len(' '.join(sa_tags).split()) == 1:
@@ -298,7 +299,8 @@ def is_fb_inv(alignmentObj, minMAPQ):
                                             supp_queryBeg, 
                                             supp_queryEnd, 
                                             alignmentObj.query_length,
-                                            "primaryFirst")
+                                            "primaryFirst",
+                                            readgroup)
                                                         
                             elif first == 'supp_queryBeg':
                                 fb_inv = FB_INV(alignmentObj.query_name, 
@@ -314,7 +316,8 @@ def is_fb_inv(alignmentObj, minMAPQ):
                                             primary_queryBeg, 
                                             primary_queryEnd,
                                             alignmentObj.query_length,
-                                            "suppFirst")
+                                            "suppFirst",
+                                            readgroup)
                                                        
     return fb_inv
 
@@ -326,13 +329,14 @@ class FB_INV():
     Fold-back inversion class
     '''
 
-    def __init__(self, read_name, ref, alnA_start, alnA_end, alnA_strand, alnA_query_start, alnA_query_end, alnB_start, alnB_end, alnB_strand, alnB_query_start, alnB_query_end, read_len, first):
+    def __init__(self, read_name, ref, alnA_start, alnA_end, alnA_strand, alnA_query_start, alnA_query_end, alnB_start, alnB_end, alnB_strand, alnB_query_start, alnB_query_end, read_len, first, readgroup):
         '''
         '''
         self.read_name = read_name
         self.read_len = read_len
         self.ref = str(ref)
         self.first = str(first)
+        self.readgroup = str(readgroup)
 
         ## First alignment attributes
         self.alnA_start = int(alnA_start)
@@ -383,13 +387,13 @@ outFile = output_dir + '/' + sample_id + '_' + sample + '_' + ref + '_' + 'INV.t
 with open(outFile, 'w') as f:
 
     # write header
-    header = ['#read_name', 'ref', 'start', 'end', 'strand', 'dist_ab', 'dist_cd', 'dist_bc', 'dist_ad']
+    header = ['#read_name', 'read_group', 'ref', 'start', 'end', 'strand', 'dist_ab', 'dist_cd', 'dist_bc', 'dist_ad']
     f.write('\t'.join(header) + "\n")
 
     # write artifact attributes to a file
     for invObj in invList:
 
-        invObj_list = [str(i) for i in [invObj.read_name, invObj.ref, 
+        invObj_list = [str(i) for i in [invObj.read_name, invObj.readgroup, invObj.ref, 
                                         invObj.alnA_start, invObj.alnA_end, invObj.alnA_strand, 
                                         invObj.a_b, invObj.c_d, 
                                         invObj.b_c, invObj.a_d]]
