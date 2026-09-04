@@ -18,11 +18,14 @@ import sys
 ## 1. Define parser ##
 ### Mandatory arguments
 parser = argparse.ArgumentParser(description='Analyse fold-back inversion artefacts')
-parser.add_argument('bam', help='Input bam file')
+parser.add_argument('bam', help='Input bam/cram file')
 parser.add_argument('chromosome', help='Chromosome name. E.g. chr12')
 parser.add_argument('sample_type', help='TUMOUR or NORMAL')
 parser.add_argument('sample_id', help='Sample name')
 parser.add_argument('output_dir', help='Output directory')
+
+### Optional arguments
+parser.add_argument('--reference', default=None, help='Reference genome FASTA file (required for CRAM input, must be indexed with .fai)')
 
 
 ## 2. Parse user's input and initialize variables ##
@@ -32,13 +35,23 @@ ref = args.chromosome
 sample = args.sample_type
 sample_id = args.sample_id
 output_dir = args.output_dir
+reference = args.reference
 scriptName = os.path.basename(sys.argv[0])
-version='1.0'
+version='1.1'
+
+## Determine whether input is BAM or CRAM based on file extension
+is_cram = bam.lower().endswith('.cram')
+
+## CRAM files require a reference FASTA to decode sequences
+if is_cram and reference is None:
+    sys.exit("ERROR: a --reference FASTA file is required to read CRAM input (%s)" % bam)
 
 print()
 print('***** ', scriptName, version, 'configuration *****')
 print('*** Arguments ***')
 print('bam file: ', bam)
+print('file format: ', 'CRAM' if is_cram else 'BAM')
+print('reference: ', reference)
 print('chromosome: ', ref)
 print('sample type: ', sample)
 print('sample id: ', sample_id)
@@ -47,18 +60,41 @@ print('output directory: ', output_dir, "\n")
 
 
 ## FUNCTIONS ##
-def get_ref_lengths(bam):
+def open_alignment_file(bam, reference=None):
+    '''
+    Open a BAM or CRAM file for reading, auto-detecting the format from the
+    file extension and supplying the reference FASTA for CRAM decoding.
+
+    Input:
+        1. bam: path to indexed BAM or CRAM file
+        2. reference: path to reference FASTA (required for CRAM, optional for BAM)
+
+    Output:
+        1. bamFile: opened pysam.AlignmentFile object
+    '''
+    mode = 'rc' if bam.lower().endswith('.cram') else 'rb'
+
+    ## Only pass reference_filename when a reference was actually supplied
+    kwargs = {'reference_filename': reference} if reference is not None else {}
+
+    bamFile = pysam.AlignmentFile(bam, mode, **kwargs)
+
+    return bamFile
+
+
+def get_ref_lengths(bam, reference=None):
     '''
     Make dictionary containing the length for each reference
 
 	Input:
-		1. bam: indexed BAM file
+		1. bam: indexed BAM/CRAM file
+		2. reference: path to reference FASTA (required for CRAM)
 	
 	Output:
 		1. lengths: Dictionary containing reference ids as keys and as values the length for each reference
     '''
-    ## Open BAM file for reading
-    bamFile = pysam.AlignmentFile(bam, 'rb')
+    ## Open BAM/CRAM file for reading
+    bamFile = open_alignment_file(bam, reference)
     
     ## Make dictionary with the length for each reference (move this code into a function)
     refLengths = dict(list(zip(bamFile.references, bamFile.lengths)))
@@ -173,17 +209,18 @@ def alignment_ref_length(CIGAR):
     return alignmentLen
 
 
-def collect_reads(ref, binBeg, binEnd, bam, confDict):
+def collect_reads(ref, binBeg, binEnd, bam, confDict, reference=None):
     '''
-    Collect reads supporting fold-back inversion events in a genomic bin from a bam file
+    Collect reads supporting fold-back inversion events in a genomic bin from a bam/cram file
 
     Input:
         1. ref: target referenge
         2. binBeg: bin begin
         3. binEnd: bin end
-        4. bam: indexed BAM file
+        4. bam: indexed BAM/CRAM file
         5. confDict:
             * minMAPQ        -> minimum mapping quality
+        6. reference: path to reference FASTA (required for CRAM)
 
     Output:
         1. invList: List of fold-back inversion events 
@@ -194,8 +231,8 @@ def collect_reads(ref, binBeg, binEnd, bam, confDict):
     invList = []
     nb_parsedReads = 0
 
-    ## Open BAM file for reading
-    bamFile = pysam.AlignmentFile(bam, "rb")
+    ## Open BAM/CRAM file for reading
+    bamFile = open_alignment_file(bam, reference)
 
     ## Extract alignments
     iterator = bamFile.fetch(ref, binBeg, binEnd)
@@ -370,7 +407,7 @@ class FB_INV():
 #################
 
 ## A. get reference length
-ref_lengths = get_ref_lengths(bam)
+ref_lengths = get_ref_lengths(bam, reference)
 beg = 0
 end = ref_lengths[ref]
 
@@ -378,7 +415,7 @@ end = ref_lengths[ref]
 ## B. Get FB_INV events
 confDict = {}
 confDict['minMAPQ'] = 20
-invList, nb_parsedReads = collect_reads(ref, beg, end, bam, confDict)
+invList, nb_parsedReads = collect_reads(ref, beg, end, bam, confDict, reference)
 
 
 ## C. Write output
@@ -417,5 +454,3 @@ with open(outFile2, 'w') as f:
     # write row
     row = [str(item) for item in [sample_id, sample, ref, nb_parsedReads, nb_invs, nb_invArtifacts]]
     f.write( '\t'.join(row) + "\n" )
-
-
